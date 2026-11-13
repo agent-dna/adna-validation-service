@@ -11,7 +11,7 @@ services:
         paths: ["/stripe"]
         strip_path: true
     plugins:
-      # Stripe's key, from STRIPE_AUTH in .env, only on calls the gate allowed
+      # Stripe's key, from STRIPE_AUTH in .env, only on calls the validation service allowed
       - name: env-key
         config:
           key: "{vault://env/stripe-auth}"
@@ -23,13 +23,13 @@ services:
         paths: ["/jira"]
         strip_path: true
     plugins:
-      # Jira's key, from JIRA_AUTH in .env, only on calls the gate allowed
+      # Jira's key, from JIRA_AUTH in .env, only on calls the validation service allowed
       - name: env-key
         config:
           key: "{vault://env/jira-auth}"
 
 # The AgentDNA checks, on every route, so no route can skip them
 plugins:
-  - name: agentdna-gate
+  - name: agentdna-validation
     config:
-      gate_url: http://host.docker.internal:8810
+      validation_url: http://host.docker.internal:8810

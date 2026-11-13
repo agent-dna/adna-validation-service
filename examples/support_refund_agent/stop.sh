@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop Kong, the gate service and both agents.
+# Stop Kong, the validation service and both agents.
 
 cd "$(dirname "$0")"
 for port in 8810 8811 8812; do

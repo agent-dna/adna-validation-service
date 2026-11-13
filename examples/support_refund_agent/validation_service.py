@@ -1,8 +1,8 @@
-"""The gate service Kong asks about every call. :8810
+"""The validation service Kong asks about every call. :8810
 
-    python gate_service.py
+    python validation_service.py
 
-The SDK's gate service, as the gateway's AgentDNA identity, with CBAC plugged in.
+adna-validation-service, as the gateway's AgentDNA identity, with CBAC plugged in.
 Only Kong should be able to reach it.
 """
 
@@ -35,7 +35,7 @@ gateway = AgentDNA(
 
 
 async def cbac(agent_id, gateway_id, call, arguments, person_asked, description, intent_id):
-    """Does this call fit what the person asked? The gate passes MCP's CBAC inputs."""
+    """Does this call fit what the person asked? The service passes MCP's CBAC inputs."""
     app = call.split(" ", 1)[1].split("/")[1]  # "POST /stripe/v1/refunds" -> "stripe"
     return await authorize(
         agent_id,
@@ -52,5 +52,5 @@ async def cbac(agent_id, gateway_id, call, arguments, person_asked, description,
 
 
 if __name__ == "__main__":
-    print(f"gate service    :8810  {gateway.get_actor_id()}")
+    print(f"Validation      :8810  {gateway.get_actor_id()}")
     uvicorn.run(create_app(gateway, cbac), host="127.0.0.1", port=8810, log_level="warning")

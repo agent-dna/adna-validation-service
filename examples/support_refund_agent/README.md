@@ -1,20 +1,20 @@
 # Support Refund Agent
 
-A support lead asks an agent to refund a customer's double charge and log a ticket. The agents talk to each other, and to Stripe and Jira, over plain REST, with every call signed. The agents hold no Stripe or Jira key: Kong adds them, after the AgentDNA gate service has checked each call.
+A support lead asks an agent to refund a customer's double charge and log a ticket. The agents talk to each other, and to Stripe and Jira, over plain REST, with every call signed. The agents hold no Stripe or Jira key: Kong adds them, after the AgentDNA validation service has checked each call.
 
 ## Architecture
 
 ```text
-support lead ──REST──▶ Support Agent (LLM) ──REST──▶ Payments Agent ──REST──▶ Kong + gate ──▶ Stripe   refund
+support lead ──REST──▶ Support Agent (LLM) ──REST──▶ Payments Agent ──REST──▶ Kong + validation ──▶ Stripe   refund
                             │
-                            └──────────REST──────────────────────────────▶ Kong + gate ──▶ Jira     ticket
+                            └──────────REST──────────────────────────────▶ Kong + validation ──▶ Jira     ticket
 ```
 
 - `support_lead.py`: the support lead signs the request, and records the finished workflow on the provenance layer.
 - `support_agent.py`: its LLM reads the request and the customer's email (`inbox/`), and decides the refund and the ticket. It asks the Payments Agent to refund, and opens the Jira ticket through Kong. Its answer joins both.
 - `payments_agent.py`: refunds the payment in Stripe, through Kong.
-- `gate_service.py`: the checks Kong asks for on every call: whitelist, GRADE and CBAC. It signs an "allowed" step, and then the app's answer.
-- `kong/`: Kong, with the `agentdna-gate` plugin, and `env-key`, which adds Stripe's or Jira's key only to calls the gate allowed.
+- `validation_service.py`: the checks Kong asks for on every call: whitelist, GRADE and CBAC. It signs an "allowed" step, and then the app's answer.
+- `kong/`: Kong, with the `agentdna-validation` plugin, and `env-key`, which adds Stripe's or Jira's key only to calls the validation service allowed.
 - `policies/`: what each agent may do. Each identity registers it on its first run, and CBAC checks calls against it.
 
 Each agent changes three lines to take part: `SignedRequest(...)` to open a call, `signed_request.client(...)` for its own calls, and `signed_request.respond(...)` to answer.
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python make_payment.py        # prints STRIPE_PAYMENT_INTENT=pi_...
 ```
 
-5. Start everything once (see [Run](#run)). Each identity registers on its first start, and prints its ID (in `logs/`, and when you run `support_lead.py`). Whitelist the Support Agent, the Payments Agent, the gateway and the support lead on the AgentDNA admin server: until then, the gate refuses their calls.
+5. Start everything once (see [Run](#run)). Each identity registers on its first start, and prints its ID (in `logs/`, and when you run `support_lead.py`). Whitelist the Support Agent, the Payments Agent, the gateway and the support lead on the AgentDNA admin server: until then, the validation service refuses their calls.
 
 ### Environment variables
 
@@ -63,7 +63,7 @@ python make_payment.py        # prints STRIPE_PAYMENT_INTENT=pi_...
 |---|---|
 | `AGENTDNA_API_KEY` | Your AgentDNA API key. Required. |
 | `PROVENANCE_LAYER_URL`, `ADMIN_SERVER_URL` | The AgentDNA services. The defaults in `.env.example` are production. |
-| `CBAC_URL` | The CBAC service the gate asks whether each call fits what the support lead asked. |
+| `CBAC_URL` | The CBAC service the validation service asks whether each call fits what the support lead asked. |
 | `SUPPORT_LEAD_NAME`, `SUPPORT_AGENT_NAME`, `PAYMENTS_AGENT_NAME`, `GATEWAY_NAME` | The identities' names. |
 | `LLM_BACKEND` | `ollama`, `openai` or `gemini`, with `OLLAMA_MODEL`, `OPENAI_API_KEY` or `GOOGLE_API_KEY`, as in the other examples. |
 | `STRIPE_AUTH` | `Bearer sk_test_...`, your Stripe test key. Only Kong uses it (and `make_payment.py`). |
@@ -75,7 +75,7 @@ python make_payment.py        # prints STRIPE_PAYMENT_INTENT=pi_...
 ## Run
 
 ```sh
-./start.sh                       # Kong :8880, gate service :8810, Support Agent :8811, Payments Agent :8812
+./start.sh                       # Kong :8880, validation service :8810, Support Agent :8811, Payments Agent :8812
 python support_lead.py           # order 4821: refunds £40, opens a ticket
 python support_lead.py 4822      # order 4822: the prompt injection, refused at the gateway
 ./stop.sh
@@ -83,4 +83,4 @@ python support_lead.py 4822      # order 4822: the prompt injection, refused at 
 
 Each run refunds in Stripe's test mode, opens a real Jira ticket, and records the workflow on the provenance layer.
 
-Logs are in `logs/`. On the dashboard, each run shows the support lead's request, both agents' calls, the gate's "allowed" (or its refusal), and the apps' signed answers.
+Logs are in `logs/`. On the dashboard, each run shows the support lead's request, both agents' calls, the validation service's "allowed" (or its refusal), and the apps' signed answers.

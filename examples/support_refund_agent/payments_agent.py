@@ -3,7 +3,7 @@
     python payments_agent.py
 
 It holds no Stripe key. It calls Stripe through Kong, and Kong adds the key
-only after the AgentDNA gate has checked the call.
+only after the AgentDNA validation service has checked the call.
 """
 
 import os

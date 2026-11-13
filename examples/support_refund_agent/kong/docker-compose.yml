@@ -4,7 +4,7 @@ services:
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
-      KONG_PLUGINS: bundled,agentdna-gate,env-key
+      KONG_PLUGINS: bundled,agentdna-validation,env-key
       KONG_LUA_PACKAGE_PATH: /kong/?.lua;;
       KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 10m  # keep bodies in memory, so the plugins can read them
       KONG_PROXY_LISTEN: 0.0.0.0:8000
@@ -13,9 +13,9 @@ services:
       JIRA_AUTH: ${JIRA_AUTH}
     volumes:
       - ./kong.yml:/kong/kong.yml:ro
-      - ./agentdna-gate:/kong/kong/plugins/agentdna-gate:ro
+      - ./agentdna-validation:/kong/kong/plugins/agentdna-validation:ro
       - ./env-key:/kong/kong/plugins/env-key:ro
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # reach the gate service on Linux too
+      - "host.docker.internal:host-gateway"  # reach the validation service on Linux too
     ports:
       - "127.0.0.1:8880:8000"

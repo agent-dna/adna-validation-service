@@ -1,4 +1,4 @@
-"""The gate service: what it says to a gateway on /check and /answered."""
+"""The validation service: what it says to a gateway on /check and /answered."""
 
 import asyncio
 import base64
@@ -24,8 +24,8 @@ from agentdna.http import (
 from agentdna.types import load_workflow
 from starlette.testclient import TestClient
 
-from adna_validation import gate
-from adna_validation.gate import answered, check, create_app
+from adna_validation import validator
+from adna_validation.validator import answered, check, create_app
 
 PDF = b"%PDF-1.7\n\xff\xfe\x00\x01 not text"
 
@@ -42,7 +42,7 @@ def signers_in_line(workflow):
 
 
 def agent_call_root_run_id(verdict):
-    """The run of the person's first step, read from the workflow the gate signed."""
+    """The run of the person's first step, read from the workflow the service signed."""
     return load_workflow(json.loads(verdict["workflow"])).get_root_envelope().run_id
 
 
@@ -61,12 +61,12 @@ def agent_call(user, agent, path, data):
 def recorded(second_agent, monkeypatch):
     """Whitelist says yes; recorded steps are kept here instead of sent to the provenance layer."""
     steps = []
-    monkeypatch.setattr(gate, "_not_whitelisted", lambda url, actor_ids: [])
+    monkeypatch.setattr(validator, "_not_whitelisted", lambda url, actor_ids: [])
     monkeypatch.setattr(second_agent, "record", steps.append)
     return steps
 
 
-def test_gate_allows_and_says_what_to_forward(user, agent, second_agent, recorded):
+def test_validator_allows_and_says_what_to_forward(user, agent, second_agent, recorded):
     cbac_calls = []
 
     async def cbac(*args):
@@ -109,7 +109,9 @@ def test_gate_allows_and_says_what_to_forward(user, agent, second_agent, recorde
     assert recorded == []
 
 
-def test_gate_refusals_are_signed_and_recorded(user, agent, second_agent, recorded, monkeypatch):
+def test_validator_refusals_are_signed_and_recorded(
+    user, agent, second_agent, recorded, monkeypatch
+):
     async def deny(*args):
         return "deny", 7001, "cbac-hash"
 
@@ -127,7 +129,7 @@ def test_gate_refusals_are_signed_and_recorded(user, agent, second_agent, record
     # Someone in the workflow not whitelisted: every signer is checked, the person too
     asked = []
     monkeypatch.setattr(
-        gate,
+        validator,
         "_not_whitelisted",
         lambda url, actor_ids: asked.extend(actor_ids) or [agent.get_actor_id()],
     )
@@ -140,14 +142,14 @@ def test_gate_refusals_are_signed_and_recorded(user, agent, second_agent, record
     assert "workflow" not in verdict  # a refusal is on record; nothing travels back
 
 
-def test_gate_refuses_a_body_with_no_workflow_without_recording(second_agent, recorded):
+def test_validator_refuses_a_body_with_no_workflow_without_recording(second_agent, recorded):
     verdict = asyncio.run(check(second_agent, "/github/issues", '{"title": "x"}'))
 
     assert (verdict["allowed"], verdict["status"]) == (False, 400)
     assert recorded == []
 
 
-def test_gate_verifies_every_signature_and_does_not_record_a_forged_workflow(
+def test_validator_verifies_every_signature_and_does_not_record_a_forged_workflow(
     user, agent, second_agent, recorded
 ):
     body = agent_call(user, agent, "/github/issues", {"title": "x"}).replace(
@@ -159,7 +161,7 @@ def test_gate_verifies_every_signature_and_does_not_record_a_forged_workflow(
     assert recorded == []
 
 
-def test_gate_signs_the_apps_answer_on_its_own_allowed(user, agent, second_agent, recorded):
+def test_validator_signs_the_apps_answer_on_its_own_allowed(user, agent, second_agent, recorded):
     verdict = asyncio.run(
         check(second_agent, "/github/issues", agent_call(user, agent, "/github/issues", {}))
     )
@@ -184,7 +186,7 @@ def test_gate_signs_the_apps_answer_on_its_own_allowed(user, agent, second_agent
     assert recorded == []  # a success is recorded when the person's code records the task
 
 
-def test_gate_forwards_and_signs_binary_bodies(user, agent, second_agent, recorded):
+def test_validator_forwards_and_signs_binary_bodies(user, agent, second_agent, recorded):
     cbac_calls = []
 
     async def cbac(*args):
@@ -232,7 +234,7 @@ def test_gate_forwards_and_signs_binary_bodies(user, agent, second_agent, record
     assert signed["body"] == '{"ok": true}' and "encoding" not in signed
 
 
-def test_gate_records_an_app_error_on_its_own_allowed(user, agent, second_agent, recorded):
+def test_validator_records_an_app_error_on_its_own_allowed(user, agent, second_agent, recorded):
     verdict = asyncio.run(
         check(second_agent, "/github/issues", agent_call(user, agent, "/github/issues", {}))
     )
@@ -252,7 +254,7 @@ def test_gate_records_an_app_error_on_its_own_allowed(user, agent, second_agent,
     ]
 
 
-def test_gate_signs_nothing_on_a_step_that_is_not_its_own_allowed(
+def test_validator_signs_nothing_on_a_step_that_is_not_its_own_allowed(
     user, agent, second_agent, recorded
 ):
     task = user.build(payload="y")
@@ -269,15 +271,19 @@ def test_gate_signs_nothing_on_a_step_that_is_not_its_own_allowed(
     assert recorded == []
 
 
-def test_gate_service_answers_over_http(user, agent, second_agent, recorded):
+def test_validator_answers_over_http(user, agent, second_agent, recorded):
     client = TestClient(create_app(second_agent))
     body = agent_call(user, agent, "/notes?day=mon", {})
 
-    verdict = client.post("/check", json={"path": "/notes?day=mon", "body": body}).json()
+    assert client.get("/health").json() == {"status": "ok"}
+
+    verdict = client.post(
+        "/validation/v1/check", json={"path": "/notes?day=mon", "body": body}
+    ).json()
     assert verdict["allowed"]
 
     result = client.post(
-        "/answered",
+        "/validation/v1/answered",
         json={
             "workflow": verdict["workflow"],
             "status": 200,
@@ -295,7 +301,7 @@ def test_cbac_gets_plain_text_intent_as_it_is(user, agent):
         previous_workflows=task,
     )
 
-    assert gate._intent(workflow) == "Open an issue about the login bug"
+    assert validator._intent(workflow) == "Open an issue about the login bug"
 
 
 # Credential rows
@@ -319,7 +325,7 @@ def evidence_rows(monkeypatch, tmp_path):
     httpx.Client.__init__, httpx.AsyncClient.__init__, HTTPAdapter.send = saved
 
 
-def test_the_gate_writes_server_in_and_server_out_under_the_agents_call(
+def test_the_validator_writes_server_in_and_server_out_under_the_agents_call(
     user, agent, second_agent, recorded, evidence_rows
 ):
     body = agent_call(user, agent, "/github/issues", {})
@@ -350,7 +356,7 @@ def test_the_gate_writes_server_in_and_server_out_under_the_agents_call(
     assert (server_in["auth_method"], server_in["auth_status"]) == (
         "none",
         "unknown",
-    )  # the gate doesn't judge keys
+    )  # the service doesn't judge keys
     assert (server_out["source"], server_out["request_id"]) == (
         "server_out",
         the_agents_call.signature,

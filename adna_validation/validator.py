@@ -1,5 +1,5 @@
 """
-The gate service: the AgentDNA checks for a gateway that can't run them itself
+The validation service: the AgentDNA checks for a gateway that can't run them itself
 (Azure APIM, Apigee, AWS API Gateway, Kong, Envoy). The gateway keeps routing
 and forwarding; it sends each call here first and does what the answer says.
 
@@ -7,7 +7,7 @@ and forwarding; it sends each call here first and does what the answer says.
 
 1. Before forwarding, the gateway sends:
 
-    POST /check   {"path": "/github/repos/o/r/issues?x=1", "body": "<the raw request body>",
+    POST /validation/v1/check   {"path": "/github/repos/o/r/issues?x=1", "body": "<the raw request body>",
                    "headers": {<what the caller sent>}}                    # headers: for the credential row
 
 and gets back a yes:
@@ -16,7 +16,7 @@ and gets back a yes:
      "workflow": "...", "run_id": "..."}
 
 Forward method, path, content_type and body to the app, never the request's
-own, and keep workflow (it ends in the gate's signed "allowed"). If encoding is
+own, and keep workflow (it ends in the service's signed "allowed"). If encoding is
 "base64", the body is binary: decode it before forwarding. Or a no:
 
     {"allowed": false, "status": 403, "reason": "...", "code": 1001}
@@ -25,18 +25,20 @@ Answer the caller with that status. The refusal is already signed and recorded.
 
 2. When the app answers, whatever the answer, the gateway sends:
 
-    POST /answered   {"workflow": "<the workflow from /check>", "status": 201, "content_type": "...", "body": "...",
+    POST /validation/v1/answered   {"workflow": "<the workflow from /check>", "status": 201, "content_type": "...", "body": "...",
                       "encoding": "base64", "headers": {<what the gateway sent the app>},
                       "destination": "<the app's URL>"}
 
 encoding: send "base64" with the body base64-encoded, so binary answers (a PDF)
 arrive intact, or leave it out for a text body.
 
-On success the gate signs the app's answer onto its "allowed" and returns
-{"body": {...}}: send exactly that to the caller. On an error the gate signs
-and records it, and returns {"recorded": true}: pass the app's answer through.
-If the gateway itself stops the call after the gate's yes (no key, say), it
+On success the service signs the app's answer onto its "allowed" and returns
+{"body": {...}}: send exactly that to the caller. On an error the service
+signs and records it, and returns {"recorded": true}: pass the app's answer through.
+If the gateway itself stops the call after the service's yes (no key, say), it
 sends {"workflow", "status": 403, "reason": "..."} and the reason is recorded.
+
+GET /health answers {"status": "ok"} while the service is up.
 """
 
 from __future__ import annotations
@@ -72,9 +74,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+API_PREFIX = "/validation/v1"
+
 
 def create_app(gateway, cbac_fn: CbacFn | None = None) -> Starlette:
-    """The gate service. gateway is the gateway's own AgentDNA identity."""
+    """The validation service. gateway is the gateway's own AgentDNA identity."""
 
     async def check_endpoint(request: Request) -> JSONResponse:
         data = await request.json()
@@ -98,10 +102,14 @@ def create_app(gateway, cbac_fn: CbacFn | None = None) -> Starlette:
             )
         )
 
+    async def health(request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
     return Starlette(
         routes=[
-            Route("/check", check_endpoint, methods=["POST"]),
-            Route("/answered", answered_endpoint, methods=["POST"]),
+            Route(f"{API_PREFIX}/check", check_endpoint, methods=["POST"]),
+            Route(f"{API_PREFIX}/answered", answered_endpoint, methods=["POST"]),
+            Route("/health", health, methods=["GET"]),
         ]
     )
 
@@ -114,7 +122,7 @@ async def check(
     headers: what the caller sent the gateway, for the credential row (server_in).
     """
 
-    # Credential row: which key arrived with this call. The gate doesn't judge
+    # Credential row: which key arrived with this call. The service doesn't judge
     # the key, so its status is unknown, as at an MCP server.
     opened = workflow_from_body(body)
     if opened and headers is not None:
@@ -210,14 +218,14 @@ async def answered(
     encoding: str = "",
 ) -> dict:
     """
-    The app answered. On success the app's answer is signed onto the gate's
+    The app answered. On success the app's answer is signed onto the service's
     "allowed", and the body to send back is returned. On an error, the error is
-    signed and recorded. Only the gate's own, genuine "allowed" is accepted, so
+    signed and recorded. Only the service's own, genuine "allowed" is accepted, so
     nobody else can get an answer signed.
 
     headers and destination: what the gateway sent the app, and where, for the
     credential row (server_out). reason: why the call failed, when the gateway
-    itself stopped it after the gate's yes (no key for the app, say).
+    itself stopped it after the service's yes (no key for the app, say).
     encoding: "base64" if the gateway sent the body base64-encoded.
     """
     try:
