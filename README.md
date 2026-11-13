@@ -26,16 +26,16 @@ Run it next to the gateway, reachable only by it.
 
 ## What the gateway calls
 
-1. **Before forwarding:** `POST /check {"path", "body", "headers"}`. The service runs the whitelist (everyone who signed the workflow), GRADE and CBAC checks. On a yes, it returns the plain call to forward (`method`, `path`, `content_type`, `body`) and the person's `run_id`, so the gateway can fetch their key for the app. On a no, it returns the status and reason, and the refusal is recorded.
-2. **After the app answers:** `POST /answered {"workflow", "status", "content_type", "body"}`. The service signs the app's answer, or records the error. The gateway sends back what it returns.
+1. **Before forwarding:** `POST /validation/v1/check {"path", "body", "headers"}`. The service runs the whitelist (everyone who signed the workflow), GRADE and CBAC checks. On a yes, it returns the plain call to forward (`method`, `path`, `content_type`, `body`) and the person's `run_id`, so the gateway can fetch their key for the app. On a no, it returns the status and reason, and the refusal is recorded.
+2. **After the app answers:** `POST /validation/v1/answered {"workflow", "status", "content_type", "body"}`. The service signs the app's answer, or records the error. The gateway sends back what it returns.
 
-Calls without a workflow aren't AgentDNA's: the gateway handles them as it would without AgentDNA. If the service can't be reached, calls with a workflow are refused. The full request and answer formats are in [adna_validation/gate.py](adna_validation/gate.py).
+Calls without a workflow aren't AgentDNA's: the gateway handles them as it would without AgentDNA. If the service can't be reached, calls with a workflow are refused. The full request and answer formats are in [adna_validation/validator.py](adna_validation/validator.py). `GET /health` answers `{"status": "ok"}` while the service is up.
 
 With `AGENTDNA_AUTH_EVIDENCE` on, the service also writes credential rows: the key that reached the gateway (`server_in`), and the key the gateway sent to the app (`server_out`).
 
 ## Example
 
-[examples/support_refund_agent](examples/support_refund_agent) does all of this with Kong: a support agent refunding a payment in Stripe and logging a ticket in Jira. Its `kong/` folder has the two Kong plugins: `agentdna-gate`, which calls this service, and `env-key`, which adds the app's key only to calls the service allowed.
+[examples/support_refund_agent](examples/support_refund_agent) does all of this with Kong: a support agent refunding a payment in Stripe and logging a ticket in Jira. Its `kong/` folder has the two Kong plugins: `agentdna-validation`, which calls this service, and `env-key`, which adds the app's key only to calls the service allowed.
 
 ## Development
 

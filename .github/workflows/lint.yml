@@ -1,0 +1,33 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dev environment
+        run: uv sync
+
+      - name: ruff format
+        run: uv run ruff format --check adna_validation tests
+
+      - name: ruff check
+        run: uv run ruff check adna_validation tests
+
+      - name: pyright
+        run: uv run pyright
