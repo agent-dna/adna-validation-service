@@ -11,8 +11,8 @@ from agentdna.auth.key import ENV_KEY
 from agentdna.auth.sink import ENV_FILE
 from agentdna.error import (
     ADMIN_WHITELIST_CHECK_FAILED,
-    CALL_MISMATCH,
     GRADE_VERIFICATION_FAILED_HEAVY,
+    HTTP_CALL_SIGNED_FOR_ANOTHER_PATH,
     TOOL_EXECUTION_FAILED,
 )
 from agentdna.http import (
@@ -124,7 +124,7 @@ def test_validator_refusals_are_signed_and_recorded(
 
     # Signed for another path
     verdict = asyncio.run(check(second_agent, "/github/repos/delete", body))
-    assert verdict["code"] == CALL_MISMATCH
+    assert verdict["code"] == HTTP_CALL_SIGNED_FOR_ANOTHER_PATH
 
     # Someone in the workflow not whitelisted: every signer is checked, the person too
     asked = []
