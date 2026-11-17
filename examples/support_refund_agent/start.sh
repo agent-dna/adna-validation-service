@@ -25,7 +25,7 @@ docker compose -p support-refund-agent --env-file .env -f kong/docker-compose.ym
 
 # 3. The validation service and the two agents
 echo "Validation      :8810"
-nohup $PY -u validation_service.py > logs/validation_service.log 2>&1 &
+nohup adna-validation-service > logs/validation_service.log 2>&1 &  # reads this folder's .env
 echo "Support Agent   :8811"
 nohup $PY -u support_agent.py > logs/support_agent.log 2>&1 &
 echo "Payments Agent  :8812"

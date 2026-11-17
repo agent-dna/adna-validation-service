@@ -97,8 +97,8 @@ def test_validator_allows_and_says_what_to_forward(user, agent, second_agent, re
         user.get_actor_id(),
     ]
 
-    agent_id, gateway_id, tool, arguments, intent, description, intent_id = cbac_calls[0]
-    assert (agent_id, gateway_id, tool, arguments) == (
+    agent_id, service_id, tool, arguments, intent, description, intent_id = cbac_calls[0]
+    assert (agent_id, service_id, tool, arguments) == (
         agent.get_actor_id(),
         second_agent.get_actor_id(),
         "POST /github/issues",
@@ -176,10 +176,10 @@ def test_validator_signs_the_apps_answer_on_its_own_allowed(user, agent, second_
         "application/json",
         '{"number": 12}',
     )  # GitHub's real status
-    gateway = second_agent.get_actor_id()
+    service = second_agent.get_actor_id()
     assert signers_in_line(workflow) == [
-        gateway,
-        gateway,
+        service,
+        service,
         agent.get_actor_id(),
         user.get_actor_id(),
     ]
@@ -245,10 +245,10 @@ def test_validator_records_an_app_error_on_its_own_allowed(user, agent, second_a
 
     step = recorded[0].get_latest_envelope()
     assert (step.payload, step.status_code) == ("the app answered 500", TOOL_EXECUTION_FAILED)
-    gateway = second_agent.get_actor_id()
+    service = second_agent.get_actor_id()
     assert signers_in_line(recorded[0]) == [
-        gateway,
-        gateway,
+        service,
+        service,
         agent.get_actor_id(),
         user.get_actor_id(),
     ]
@@ -258,12 +258,12 @@ def test_validator_signs_nothing_on_a_step_that_is_not_its_own_allowed(
     user, agent, second_agent, recorded
 ):
     task = user.build(payload="y")
-    not_the_gateways = agent.build(payload='{"allowed": "POST /x"}', previous_workflows=task)
+    not_the_services = agent.build(payload='{"allowed": "POST /x"}', previous_workflows=task)
     not_an_allowed = second_agent.build(
         payload=build_http_answer_payload("x", "text/plain", 200), previous_workflows=task
     )
 
-    for workflow in (not_the_gateways, not_an_allowed):
+    for workflow in (not_the_services, not_an_allowed):
         assert "error" in asyncio.run(
             answered(second_agent, workflow.serialize(), 201, "text/plain", "forged")
         )

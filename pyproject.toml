@@ -19,10 +19,16 @@ authors = [
 
 dependencies = [
   # Signed HTTP calls: agentdna PR #83. Pinned to its branch until it is released.
-  "agent-dna @ git+https://github.com/agent-dna/agentdna@shreya/http-calls",
+  "agent-dna @ git+https://github.com/agent-dna/agentdna@develop",
+  "cbac>=0.1.2",
+  "python-dotenv>=1.0.0",
   "requests>=2.0.0",
   "starlette",
+  "uvicorn>=0.30.0",
 ]
+
+[project.scripts]
+adna-validation-service = "adna_validation.server:main"
 
 [project.urls]
 Repository = "https://github.com/agent-dna/adna-validation-service"

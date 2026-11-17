@@ -7,6 +7,5 @@ langchain-openai>=0.2.0
 langchain-google-genai>=2.0.0
 python-dotenv>=1.0.0
 starlette
-cbac>=0.1.0
 
 -e ../..  # adna-validation-service, and the AgentDNA SDK it depends on
