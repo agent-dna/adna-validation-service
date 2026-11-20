@@ -19,7 +19,7 @@ authors = [
 
 dependencies = [
   # Signed HTTP calls: agentdna PR #83. Pinned to its branch until it is released.
-  "agent-dna @ git+https://github.com/agent-dna/agentdna@develop",
+  "agent-dna>=0.7.0b1",
   "cbac>=0.1.2",
   "python-dotenv>=1.0.0",
   "requests>=2.0.0",
