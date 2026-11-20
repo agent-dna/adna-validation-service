@@ -3,7 +3,7 @@ The validation service: the AgentDNA checks for a gateway that can't run them it
 (Azure APIM, Apigee, AWS API Gateway, Kong, Envoy). The gateway keeps routing
 and forwarding; it sends each call here first and does what the answer says.
 
-    app = create_app(gateway, cbac_fn)        # run with any ASGI server, e.g. uvicorn
+    app = create_app(adna_validation_service_identity, cbac_fn)        # run with any ASGI server, e.g. uvicorn
 
 1. Before forwarding, the gateway sends:
 
@@ -49,6 +49,7 @@ from urllib.parse import urljoin
 
 import requests
 from agentdna.auth.httpobserver import SOURCE_SERVER_OUT, record_call
+from agentdna.core import AgentDNA
 from agentdna.error import (
     ADMIN_WHITELIST_CHECK_FAILED,
     ADMIN_WHITELIST_CHECK_SERVER_ERROR,
@@ -77,20 +78,26 @@ from starlette.routing import Route
 API_PREFIX = "/validation/v1"
 
 
-def create_app(gateway, cbac_fn: CbacFn | None = None) -> Starlette:
-    """The validation service. gateway is the gateway's own AgentDNA identity."""
+def create_app(adna_validation_service_identity, cbac_fn: CbacFn | None = None) -> Starlette:
+    """The validation service. adna_validation_service_identity is the service's own AgentDNA identity."""
 
     async def check_endpoint(request: Request) -> JSONResponse:
         data = await request.json()
         return JSONResponse(
-            await check(gateway, data["path"], data["body"], cbac_fn, data.get("headers"))
+            await check(
+                adna_validation_service_identity,
+                data["path"],
+                data["body"],
+                cbac_fn,
+                data.get("headers"),
+            )
         )
 
     async def answered_endpoint(request: Request) -> JSONResponse:
         data = await request.json()
         return JSONResponse(
             await answered(
-                gateway,
+                adna_validation_service_identity,
                 data["workflow"],
                 data["status"],
                 data.get("content_type", ""),
@@ -115,7 +122,11 @@ def create_app(gateway, cbac_fn: CbacFn | None = None) -> Starlette:
 
 
 async def check(
-    gateway, path: str, body: str, cbac_fn: CbacFn | None = None, headers: dict | None = None
+    adna_validation_service_identity: AgentDNA,
+    path: str,
+    body: str,
+    cbac_fn: CbacFn | None = None,
+    headers: dict | None = None,
 ) -> dict:
     """
     Run every check on one call. The first no stops it.
@@ -128,17 +139,19 @@ async def check(
     if opened and headers is not None:
         await asyncio.to_thread(
             record_call,
-            gateway,
+            adna_validation_service_identity,
             opened[0].get_latest_envelope(),
             SOURCE_SERVER_IN,
             headers,
-            gateway.get_actor_id(),
+            adna_validation_service_identity.get_actor_id(),
         )
 
     # Open, GRADE (every signature, back to the person), match (signed for this path?).
     # SignedRequest signs and records its own refusals (a forged workflow only logged).
     try:
-        signed_request = await asyncio.to_thread(SignedRequest, gateway, body, path, VERIFY_HEAVY)
+        signed_request = await asyncio.to_thread(
+            SignedRequest, adna_validation_service_identity, body, path, VERIFY_HEAVY
+        )
     except RequestRefused as refused:
         status = 400 if refused.code == 0 else 403  # 0: no signed call at all
         return {"allowed": False, "status": status, "reason": refused.reason, "code": refused.code}
@@ -149,18 +162,20 @@ async def check(
     # Whitelist: an admin approved everyone who signed the workflow (as the MCP server checks)
     try:
         refused = await asyncio.to_thread(
-            _not_whitelisted, gateway.agentdna_admin_url, workflow.list_actors()
+            _not_whitelisted,
+            adna_validation_service_identity.agentdna_admin_url,
+            workflow.list_actors(),
         )
     except Exception as error:
         return await _refuse(
-            gateway,
+            adna_validation_service_identity,
             workflow,
             f"could not check the whitelist: {error}",
             ADMIN_WHITELIST_CHECK_SERVER_ERROR,
         )
     if refused:
         return await _refuse(
-            gateway,
+            adna_validation_service_identity,
             workflow,
             f"not whitelisted: {', '.join(refused)}",
             ADMIN_WHITELIST_CHECK_FAILED,
@@ -171,7 +186,7 @@ async def check(
         try:
             decision, status, message_hash = await cbac_fn(
                 agent_id,
-                gateway.get_actor_id(),
+                adna_validation_service_identity.get_actor_id(),
                 f"{signed_request.method} {signed_request.path}",
                 _arguments(signed_request.body),
                 _intent(workflow),
@@ -180,16 +195,23 @@ async def check(
             )
         except Exception as error:
             return await _refuse(
-                gateway, workflow, f"could not run CBAC: {error}", MIDDLEWARE_EXECUTION_FAILED
+                adna_validation_service_identity,
+                workflow,
+                f"could not run CBAC: {error}",
+                MIDDLEWARE_EXECUTION_FAILED,
             )
         if decision.lower() != "allow":
             return await _refuse(
-                gateway, workflow, f"CBAC said {decision}", status, record_payload=message_hash
+                adna_validation_service_identity,
+                workflow,
+                f"CBAC said {decision}",
+                status,
+                record_payload=message_hash,
             )
 
     # Yes: sign it, and say exactly what to forward
     allowed = await asyncio.to_thread(
-        gateway.build,
+        adna_validation_service_identity.build,
         payload=json.dumps({"allowed": f"{signed_request.method} {signed_request.path}"}),
         previous_workflows=workflow,
     )
@@ -207,7 +229,7 @@ async def check(
 
 
 async def answered(
-    gateway,
+    adna_validation_service_identity: AgentDNA,
     workflow: str,
     status: int,
     content_type: str = "",
@@ -231,24 +253,37 @@ async def answered(
     try:
         allowed = load_workflow(json.loads(workflow))
         tip = allowed.get_latest_envelope()
-        genuine = tip.from_ == gateway.get_actor_id() and "allowed" in json.loads(tip.payload)
+        genuine = (
+            tip.from_ == adna_validation_service_identity.get_actor_id()
+            and "allowed" in json.loads(tip.payload)
+        )
     except Exception:
         genuine = False
-    if not genuine or await asyncio.to_thread(gateway.verify, allowed, VERIFY_LIGHT) != RESULT_OK:
-        return {"error": 'not an "allowed" this gateway signed'}
+    if (
+        not genuine
+        or await asyncio.to_thread(adna_validation_service_identity.verify, allowed, VERIFY_LIGHT)
+        != RESULT_OK
+    ):
+        return {"error": 'not an "allowed" this service signed'}
 
     # Credential row: which key went to the app, and what the app said about it.
     # Filed under the agent's call, like the rows before it.
     if headers is not None:
         agent_call = (allowed.get_latest_envelope().parent_envelope or [])[0]
         await asyncio.to_thread(
-            record_call, gateway, agent_call, SOURCE_SERVER_OUT, headers, destination, status
+            record_call,
+            adna_validation_service_identity,
+            agent_call,
+            SOURCE_SERVER_OUT,
+            headers,
+            destination,
+            status,
         )
 
     if status >= 400:
         await asyncio.to_thread(
             record_failure,
-            gateway,
+            adna_validation_service_identity,
             allowed,
             reason or f"the app answered {status}",
             TOOL_EXECUTION_FAILED,
@@ -258,7 +293,7 @@ async def answered(
     # Text is signed as text, a binary answer (a PDF) as base64
     body, encoding = body_to_text(body_from_text(body, encoding))
     answer = await asyncio.to_thread(
-        gateway.build,
+        adna_validation_service_identity.build,
         payload=build_http_answer_payload(body, content_type, status, encoding),
         previous_workflows=allowed,
     )
@@ -266,11 +301,17 @@ async def answered(
 
 
 async def _refuse(
-    gateway, workflow, reason: str, code: int, record_payload: str | None = None
+    adna_validation_service_identity: AgentDNA,
+    workflow,
+    reason: str,
+    code: int,
+    record_payload: str | None = None,
 ) -> dict:
     """Sign the refusal onto the workflow and record it. CBAC's reason may hold
     personal data, so only its hash is recorded, as the MCP server does."""
-    await asyncio.to_thread(record_failure, gateway, workflow, record_payload or reason, code)
+    await asyncio.to_thread(
+        record_failure, adna_validation_service_identity, workflow, record_payload or reason, code
+    )
     return {"allowed": False, "status": 403, "reason": reason, "code": code}
 
 

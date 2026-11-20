@@ -13,7 +13,7 @@ support lead ──REST──▶ Support Agent (LLM) ──REST──▶ Payment
 - `support_lead.py`: the support lead signs the request, and records the finished workflow on the provenance layer.
 - `support_agent.py`: its LLM reads the request and the customer's email (`inbox/`), and decides the refund and the ticket. It asks the Payments Agent to refund, and opens the Jira ticket through Kong. Its answer joins both.
 - `payments_agent.py`: refunds the payment in Stripe, through Kong.
-- `validation_service.py`: the checks Kong asks for on every call: whitelist, GRADE and CBAC. It signs an "allowed" step, and then the app's answer.
+- The validation service: `adna-validation-service`, which `start.sh` starts with this folder's `.env`. Kong calls it on every call: whitelist, GRADE and CBAC. It signs an "allowed" step, and then the app's answer.
 - `kong/`: Kong, with the `agentdna-validation` plugin, and `env-key`, which adds Stripe's or Jira's key only to calls the validation service allowed.
 - `policies/`: what each agent may do. Each identity registers it on its first run, and CBAC checks calls against it.
 
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python make_payment.py        # prints STRIPE_PAYMENT_INTENT=pi_...
 ```
 
-5. Start everything once (see [Run](#run)). Each identity registers on its first start, and prints its ID (in `logs/`, and when you run `support_lead.py`). Whitelist the Support Agent, the Payments Agent, the gateway and the support lead on the AgentDNA admin server: until then, the validation service refuses their calls.
+5. Start everything once (see [Run](#run)). Each identity registers on its first start, and prints its ID (in `logs/`, and when you run `support_lead.py`). Whitelist the Support Agent, the Payments Agent, the validation service and the support lead on the AgentDNA admin server: until then, the validation service refuses their calls.
 
 ### Environment variables
 
@@ -63,8 +63,8 @@ python make_payment.py        # prints STRIPE_PAYMENT_INTENT=pi_...
 |---|---|
 | `AGENTDNA_API_KEY` | Your AgentDNA API key. Required. |
 | `PROVENANCE_LAYER_URL`, `ADMIN_SERVER_URL` | The AgentDNA services. The defaults in `.env.example` are production. |
-| `CBAC_URL` | The CBAC service the validation service asks whether each call fits what the support lead asked. |
-| `SUPPORT_LEAD_NAME`, `SUPPORT_AGENT_NAME`, `PAYMENTS_AGENT_NAME`, `GATEWAY_NAME` | The identities' names. |
+| `CBAC_URL`, `CBAC_ENABLED` | The CBAC service the validation service asks whether each call fits what the support lead asked, and whether it asks at all (`true` or `false`, default `true`). |
+| `SUPPORT_LEAD_NAME`, `SUPPORT_AGENT_NAME`, `PAYMENTS_AGENT_NAME`, `ADNA_VALIDATION_SERVICE_IDENTITY` | The identities' names. |
 | `LLM_BACKEND` | `ollama`, `openai` or `gemini`, with `OLLAMA_MODEL`, `OPENAI_API_KEY` or `GOOGLE_API_KEY`, as in the other examples. |
 | `STRIPE_AUTH` | `Bearer sk_test_...`, your Stripe test key. Only Kong uses it (and `make_payment.py`). |
 | `STRIPE_PAYMENT_INTENT` | The payment to refund, from `make_payment.py`. |
