@@ -49,6 +49,7 @@ from urllib.parse import urljoin
 
 import requests
 from agentdna.auth.httpobserver import SOURCE_SERVER_OUT, record_call
+from agentdna.core import AgentDNA
 from agentdna.error import (
     ADMIN_WHITELIST_CHECK_FAILED,
     ADMIN_WHITELIST_CHECK_SERVER_ERROR,
@@ -69,7 +70,6 @@ from agentdna.http import (
 from agentdna.mcp.server.observer import SOURCE_SERVER_IN
 from agentdna.mcp.server.types import CbacFn
 from agentdna.types import VERIFY_HEAVY, VERIFY_LIGHT, load_workflow
-from agentdna.core import AgentDNA
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
