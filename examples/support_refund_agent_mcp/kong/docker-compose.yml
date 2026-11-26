@@ -1,0 +1,21 @@
+services:
+  kong:
+    image: kong:3.9.1
+    # Kong shares the host's network: it reaches the validation service and the MCP
+    # servers on 127.0.0.1, and listens there itself. Docker Desktop (macOS, Windows):
+    # turn on host networking in its settings.
+    network_mode: host
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PLUGINS: bundled,agentdna-mcp-validation,env-key
+      KONG_LUA_PACKAGE_PATH: /kong/?.lua;;
+      KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 10m  # keep bodies in memory, so the plugins can read them
+      KONG_PROXY_LISTEN: 127.0.0.1:8880
+      KONG_ADMIN_LISTEN: "off"
+      STRIPE_AUTH: ${STRIPE_AUTH}                   # the apps' keys: only Kong has them
+      JIRA_AUTH: ${JIRA_AUTH}
+    volumes:
+      - ./kong.yml:/kong/kong.yml:ro
+      - ./agentdna-mcp-validation:/kong/kong/plugins/agentdna-mcp-validation:ro
+      - ./env-key:/kong/kong/plugins/env-key:ro

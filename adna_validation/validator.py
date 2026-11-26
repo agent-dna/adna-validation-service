@@ -61,9 +61,10 @@ workflow), and keep workflow. Or a no, as on /check: answer the caller with that
     POST /validation/v1/mcp/answered   {"workflow": "<the workflow from /mcp/check>", "status": 200,
                           "body": "<the raw JSON-RPC answer>", "headers": {...}, "destination": "..."}
 
-The MCP server must answer with JSON, not an event stream. On a result, the
-service signs it, with the tool's output, onto the agent's call and returns
-{"body": "<the JSON-RPC answer>"}: send exactly that to the caller. On an HTTP
+The MCP server may answer with JSON or as an event stream (text/event-stream):
+send its body as it came. On a result, the service signs it, with the tool's
+output, onto the agent's call and returns {"body": "<the JSON-RPC answer>"},
+always JSON: send exactly that to the caller, as application/json. On an HTTP
 or JSON-RPC error it records the error and returns {"recorded": true}: pass the
 answer through. A gateway stopping the call itself sends "reason", as on /answered.
 
@@ -393,7 +394,8 @@ async def mcp_answered(
     signed onto the agent's call: the agent's relay accepts nothing else. Only the
     service's own, genuine "allowed" for a tools/call is accepted, as on /answered.
 
-    body: the JSON-RPC answer. headers and destination: what the gateway sent the
+    body: the JSON-RPC answer, as JSON or as an event stream; the signed answer is
+    JSON either way. headers and destination: what the gateway sent the
     MCP server, and where (server_out). reason: why the call failed, when the
     gateway itself stopped it after the service's yes.
     """
@@ -414,10 +416,8 @@ async def mcp_answered(
             status,
         )
 
-    # No answer to sign: an HTTP error, a JSON-RPC error, or not JSON at all
-    answer = _json(body)
-    if not isinstance(answer, dict):
-        answer = {}
+    # No answer to sign: an HTTP error, a JSON-RPC error, or no JSON-RPC answer at all
+    answer = _jsonrpc_answer(body)
     result = answer.get("result")
     if status >= 400 or not isinstance(result, dict):
         error = answer.get("error")
@@ -601,6 +601,34 @@ def _json(text: str) -> object:
         return json.loads(text)
     except (TypeError, ValueError):
         return None
+
+
+def _jsonrpc_answer(body: str) -> dict:
+    """
+    The JSON-RPC answer in an MCP server's reply: the body itself when it's JSON,
+    or, in an event stream, the last message that answers (has a result or an
+    error); notifications sent before it are skipped. {} if there's none.
+    """
+    answer = _json(body)
+    if isinstance(answer, dict):
+        return answer
+    for message in reversed(_event_stream_messages(body)):
+        if isinstance(message, dict) and ("result" in message or "error" in message):
+            return message
+    return {}
+
+
+def _event_stream_messages(body: str) -> list:
+    """The data of each event in an event stream, read as JSON (None if it isn't)."""
+    messages, data = [], []
+    for line in [*(body or "").splitlines(), ""]:  # a blank line ends an event
+        if not line:
+            if data:
+                messages.append(_json("\n".join(data)))
+                data = []
+        elif line.startswith("data:"):
+            data.append(line[5:].removeprefix(" "))
+    return messages
 
 
 async def _refuse(

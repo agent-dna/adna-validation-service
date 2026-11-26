@@ -230,6 +230,50 @@ def test_mcp_answered_records_an_http_or_jsonrpc_error_and_passes_it_through(
         assert _descends_from(step, call)
 
 
+def event_stream(*messages, newline="\n"):
+    """An MCP server's answer as an event stream (text/event-stream), one event per message."""
+    return "".join(
+        f"event: message{newline}data: {message}{newline}{newline}" for message in messages
+    )
+
+
+def test_mcp_answered_reads_an_answer_sent_as_an_event_stream_and_answers_json(
+    user, agent, second_agent, recorded
+):
+    body, call = signed_tools_call(user, agent)
+    allowed = asyncio.run(mcp_check(second_agent, body))["workflow"]
+    progress = json.dumps(
+        {"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progress": 1}}
+    )
+
+    for newline in ("\n", "\r\n"):
+        streamed = event_stream(progress, tool_result("KAN-1"), newline=newline)
+        result = asyncio.run(mcp_answered(second_agent, allowed, 200, streamed))
+
+        answer = json.loads(result["body"])  # JSON, whatever the MCP server sent
+        assert (answer["jsonrpc"], answer["id"]) == ("2.0", 7)
+        assert answer["result"]["content"] == [{"type": "text", "text": "KAN-1"}]
+        assert answer["result"]["_meta"]["server"] == "kept"
+        successor = workflow_from_metadata(answer["result"]["_meta"])
+        assert successor is not None
+        assert _descends_from(successor, call)
+        assert json.loads(successor.get_latest_envelope().payload)["status"] == "success"
+    assert recorded == []
+
+    # A JSON-RPC error in the stream is recorded, as when it comes as JSON
+    jsonrpc_error = json.dumps(
+        {"jsonrpc": "2.0", "id": 7, "error": {"code": -32602, "message": "Unknown tool"}}
+    )
+    streamed = event_stream(progress, jsonrpc_error)
+    assert asyncio.run(mcp_answered(second_agent, allowed, 200, streamed)) == {"recorded": True}
+    assert [step.get_latest_envelope().payload for step in recorded] == ["Unknown tool"]
+
+    # A stream with no answer in it: nothing to sign
+    streamed = event_stream(progress)
+    assert asyncio.run(mcp_answered(second_agent, allowed, 200, streamed)) == {"recorded": True}
+    assert recorded[-1].get_latest_envelope().payload == "the MCP server answered 200"
+
+
 def test_mcp_answered_signs_nothing_on_a_step_that_is_not_its_own_allowed_for_a_tools_call(
     user, agent, second_agent, recorded
 ):

@@ -1,0 +1,37 @@
+_format_version: "3.0"
+
+# The Stripe and Jira MCP servers, behind Kong.
+#   /mcp/stripe   -> stripe_mcp.py                       http://127.0.0.1:8813/mcp
+#   /mcp/jira     -> Atlassian's MCP server (official)   https://mcp.atlassian.com/v2/mcp
+services:
+  - name: stripe-mcp
+    url: http://127.0.0.1:8813/mcp
+    routes:
+      - name: stripe-mcp
+        paths: ["/mcp/stripe"]
+        strip_path: true
+    plugins:
+      # Stripe's key, from STRIPE_AUTH in .env, only on calls the validation service allowed
+      - name: env-key
+        config:
+          key: "{vault://env/stripe-auth}"
+
+  - name: jira-mcp
+    url: https://mcp.atlassian.com/v2/mcp
+    routes:
+      - name: jira-mcp
+        paths: ["/mcp/jira"]
+        strip_path: true
+    plugins:
+      # Jira's key, from JIRA_AUTH in .env, only on calls the validation service allowed,
+      # and on the MCP session's own messages: Atlassian wants it from initialize on
+      - name: env-key
+        config:
+          key: "{vault://env/jira-auth}"
+          mcp_session: true
+
+# The AgentDNA checks, on every route, so no route can skip them
+plugins:
+  - name: agentdna-mcp-validation
+    config:
+      validation_url: http://127.0.0.1:8810
