@@ -41,6 +41,15 @@ Calls without a workflow aren't AgentDNA's: the gateway handles them as it would
 
 With `AGENTDNA_AUTH_EVIDENCE` on, the service also writes credential rows: the key that reached the gateway (`server_in`), and the key the gateway sent to the app (`server_out`).
 
+### MCP gateways
+
+A gateway in front of MCP servers calls the same pair, under `/mcp`, for a JSON-RPC `tools/call` that carries a signed workflow in `params._meta.agentdna`:
+
+1. **Before forwarding:** `POST /validation/v1/mcp/check {"body", "headers"}`, with `body` the raw JSON-RPC request. The same checks as `/check`, plus one: the tool and arguments must be the ones the agent signed. On a yes, it returns the `tools/call` to forward (without the signed workflow). On a no, the status and reason, as on `/check`.
+2. **After the MCP server answers:** `POST /validation/v1/mcp/answered {"workflow", "status", "body"}`. The service signs the result, with the tool's output, onto the agent's call, where the agent's AgentDNA relay expects it, and returns the JSON-RPC answer to send back. An HTTP or JSON-RPC error is recorded and passed through.
+
+Other MCP messages (`initialize`, `tools/list`, ...) aren't AgentDNA's: the gateway passes them through. The MCP servers must answer with JSON, not an event stream.
+
 ## Example
 
 [examples/support_refund_agent](examples/support_refund_agent) does all of this with Kong: a support agent refunding a payment in Stripe and logging a ticket in Jira. Its `start.sh` starts the validation service, and its `kong/` folder has the two Kong plugins: `agentdna-validation`, which calls the service's API, and `env-key`, which adds the app's key only to calls the service allowed.
