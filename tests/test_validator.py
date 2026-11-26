@@ -4,11 +4,6 @@ import asyncio
 import base64
 import json
 
-import httpx
-import pytest
-from agentdna.auth import httpobserver
-from agentdna.auth.key import ENV_KEY
-from agentdna.auth.sink import ENV_FILE
 from agentdna.error import (
     ADMIN_WHITELIST_CHECK_FAILED,
     GRADE_VERIFICATION_FAILED_HEAVY,
@@ -55,15 +50,6 @@ def agent_call(user, agent, path, data):
     )
     call = build_http_call_payload("POST", path, json.dumps(data), "application/json")
     return json.dumps(workflow_to_body(agent.build(payload=call, previous_workflows=task)))
-
-
-@pytest.fixture
-def recorded(second_agent, monkeypatch):
-    """Whitelist says yes; recorded steps are kept here instead of sent to the provenance layer."""
-    steps = []
-    monkeypatch.setattr(validator, "_not_whitelisted", lambda url, actor_ids: [])
-    monkeypatch.setattr(second_agent, "record", steps.append)
-    return steps
 
 
 def test_validator_allows_and_says_what_to_forward(user, agent, second_agent, recorded):
@@ -305,24 +291,6 @@ def test_cbac_gets_plain_text_intent_as_it_is(user, agent):
 
 
 # Credential rows
-
-
-@pytest.fixture
-def evidence_rows(monkeypatch, tmp_path):
-    """Credential rows go to a local file. Whatever recording patches is put back afterwards."""
-    from requests.adapters import HTTPAdapter
-
-    rows = tmp_path / "evidence.jsonl"
-    monkeypatch.setenv(ENV_KEY, "one-shared-value")
-    monkeypatch.setenv(ENV_FILE, str(rows))
-    monkeypatch.setattr(httpobserver, "_installed", False)
-    saved = (httpx.Client.__init__, httpx.AsyncClient.__init__, HTTPAdapter.send)
-    yield (
-        lambda: (
-            [json.loads(line) for line in rows.read_text().splitlines()] if rows.exists() else []
-        )
-    )
-    httpx.Client.__init__, httpx.AsyncClient.__init__, HTTPAdapter.send = saved
 
 
 def test_the_validator_writes_server_in_and_server_out_under_the_agents_call(
